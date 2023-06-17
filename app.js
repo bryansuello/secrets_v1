@@ -36,7 +36,8 @@ mongoose.connect("mongodb://127.0.0.1:27017/userDB", {
 const userSchema = new mongoose.Schema({
   email: String,
   password: String,
-  googleId: String
+  googleId: String,
+  secret: String
 });
 
 userSchema.plugin(passportLocalMongoose);
@@ -56,9 +57,13 @@ passport.serializeUser((user, done) => {
 });
 
 passport.deserializeUser((id, done) => {
-  User.findById(id, (err, user) => {
-    done(err, user);
-  });
+  User.findById(id)
+    .then(user => {
+      done(null, user);
+    })
+    .catch(err => {
+      done(err, null);
+    });
 });
 
 passport.use(new GoogleStrategy({
@@ -124,11 +129,18 @@ app.route('/register')
 
 app.route('/secrets')
   .get((req, res) => {
-    if (req.isAuthenticated()) {
-      res.render('secrets');
-    } else {
-      res.redirect('/login');
-    }
+    // if (req.isAuthenticated()) {
+    //   res.render('secrets');
+    // } else {
+    //   res.redirect('/login');
+    // }
+    User.find({ 'secret': { $ne: null } })
+      .then(foundUsers => {
+        res.render('secrets', { usersWithSecrets: foundUsers });
+      })
+      .catch(err => {
+        console.log(err);
+      });
   });
 
 
@@ -177,6 +189,40 @@ app.route('/logout')
       res.redirect('/');
     });
   });
+
+
+// Add this middleware function before the /submit route
+function ensureAuthenticated(req, res, next) {
+  if (req.isAuthenticated()) {
+    return next();
+  }
+  res.redirect('/login');
+}
+
+// Update the /submit routeensureAuthenticated,  to use the ensureAuthenticated middleware
+app.route('/submit')
+  .get(ensureAuthenticated, (req, res) => {
+    if (req.isAuthenticated()) {
+      res.render('submit');
+    } else {
+      res.redirect('/login');
+    }
+  })
+  .post((req, res) => {
+    const submittedSecret = req.body.secret;
+    User.findById(req.user.id)
+      .then(foundUser => {
+        foundUser.secret = submittedSecret;
+        return foundUser.save();
+      })
+      .then(() => {
+        res.redirect('/secrets');
+      })
+      .catch(err => {
+        console.log(err);
+      });
+  });
+
 
 app.listen(3000, function() {
   console.log("Server started on port 3000");
